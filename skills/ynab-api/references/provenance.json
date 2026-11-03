@@ -1,0 +1,21 @@
+{
+  "apiVersion": "v1",
+  "apiRelease": "1.88.0",
+  "openapiVersion": "3.1.1",
+  "snapshotDate": "2026-11-03",
+  "sources": [
+    {
+      "file": "docs/ynab-api.md",
+      "url": "https://api.ynab.com/",
+      "sha256": "dcf532c3411a2e49c55f24b4e5303d2dcafd1798d17f96d149fd182f74410bc4"
+    },
+    {
+      "file": "docs/ynab-endpoints.md",
+      "url": "https://api.ynab.com/v1",
+      "sha256": "903f21424375b7f8336da21250ceb74d740d75d322e0b25a028df097eabbaf93"
+    }
+  ],
+  "specificationUrl": "https://api.ynab.com/papi/open_api_spec.yaml",
+  "derivation": "OpenAPI reconstructed losslessly for paths, tags, security and components from YAML blocks in ynab-endpoints.md; info reduced to title/version.",
+  "openapiSha256": "ede9914d786c8cea1f0c3ed1e5647d953041388d66d0bd97e11f62c5f43414db"
+}

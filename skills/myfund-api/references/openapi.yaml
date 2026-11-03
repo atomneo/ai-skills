@@ -1,0 +1,1042 @@
+openapi: 3.1.0
+info:
+  title: myFund.pl API
+  version: v1
+  description: |
+    API REST do odczytu danych i importu operacji do portfela inwestycyjnego w [myFund.pl](https://myfund.pl).
+
+    ## Uwierzytelnianie
+
+    Każde żądanie wymaga klucza API przekazanego jako parametr zapytania.
+    Endpointy importu przyjmują go także w body żądania zgodnie z ich dokumentacją.
+    Klucz generujesz lub regenerujesz w **Menu > Konto > Ustawienia konta > Klucz API**.
+    Wygenerowanie nowego klucza natychmiast unieważnia poprzedni.
+
+    ## Limity i cache
+
+    Odpowiedzi odczytu są cache'owane przez **5 minut**. Identyczne żądania w tym oknie
+    zwracają te same dane niezależnie od zmian w portfelu.
+    Żądania importu operacji nie są cache'owane.
+
+    ## Kompresja odpowiedzi
+
+    `/getPortfel.php` obsługuje kompresję gzip odpowiedzi JSON.
+    Aby z niej skorzystać, wyślij nagłówek `Accept-Encoding: gzip`.
+    Skompresowana odpowiedź zawiera `Content-Encoding: gzip`.
+    Wartość `gzip;q=0` wyłącza gzip. Wariant odpowiedzi zależy od
+    `Accept-Encoding`, co jest wskazane w nagłówku `Vary`.
+
+    ## Uwagi dot. typów
+
+    API zwraca wiele wartości liczbowych jako stringi (czasem z prefiksem `+`
+    dla dodatnich stóp zwrotu). Konsumenci powinni parsować je defensywnie.
+
+    ## Status
+
+    API jest obecnie w fazie **beta**. Dostęp może być ograniczony do wybranych użytkowników.
+  contact:
+    name: myFund.pl
+    url: https://myfund.pl
+
+servers:
+  - url: https://myfund.pl/API/v1
+    description: Produkcja
+
+security:
+  - apiKeyQuery: []
+
+paths:
+  /getPortfele.php:
+    get:
+      operationId: getPortfolios
+      summary: Pobierz listę portfeli użytkownika
+      description: |
+        Zwraca listę portfeli użytkownika, w tym widoczne portfele udostępnione
+        przez innych użytkowników. Uwzględnia ustawienia kolejności i widoczności portfeli.
+        Zwraca wyłącznie status i podstawowe dane portfeli.
+      parameters:
+        - name: apiKey
+          in: query
+          required: true
+          description: Klucz API wygenerowany w ustawieniach konta.
+          schema:
+            type: string
+            minLength: 32
+            maxLength: 32
+        - name: format
+          in: query
+          required: false
+          description: Format odpowiedzi. Domyślnie `json`.
+          schema:
+            type: string
+            enum: [json]
+            default: json
+      responses:
+        "200":
+          description: Lista portfeli (pusta lista jest zwracana jako `[]`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfoliosResponse"
+        "401":
+          description: Błąd uwierzytelniania lub brak weryfikacji konta.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfoliosResponse"
+        "403":
+          description: Brak dostępu do listy portfeli, np. z powodu abonamentu.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfoliosResponse"
+        "502":
+          description: Nie udało się pobrać listy portfeli z powodu błędu usługi.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfoliosResponse"
+
+  /getPortfel.php:
+    get:
+      operationId: getPortfolio
+      summary: Pobierz dane portfela
+      description: |
+        Zwraca dane portfela: skład, alokacje i szeregi czasowe.
+        Domyślnie zwraca również dywidendy w czasie, historię operacji i zobowiązania.
+        Historia operacji zawiera ISIN. Sekcja `udzialKontInwestycyjnychWCzasie`
+        udostępnia wartości i udziały kont z raportu `SkladPortfelaKonta`.
+        Dane i lista portfeli są pobierane z najnowszego numerowanego wydania `mobileAppAPI`.
+        Zakres odpowiedzi można ograniczyć parametrem `scope`.
+        Odpowiedź odpowiada widokowi składu portfela na dashboardzie myFund.pl.
+      parameters:
+        - name: portfel
+          in: query
+          required: true
+          description: Nazwa portfela wyświetlana na koncie użytkownika.
+          schema:
+            type: string
+          example: "Mój Portfel"
+        - name: apiKey
+          in: query
+          required: true
+          description: Klucz API wygenerowany w ustawieniach konta.
+          schema:
+            type: string
+          example: "abc123def456"
+        - name: format
+          in: query
+          required: true
+          description: Format odpowiedzi. Obecnie obsługiwany jest tylko `json`.
+          schema:
+            type: string
+            enum: [json]
+        - name: scope
+          in: query
+          required: false
+          description: |
+            Lista nazw pól najwyższego poziomu odpowiedzi, oddzielonych przecinkami.
+            Zwracane są tylko wymienione pola; wielkość liter ma znaczenie,
+            a spacje wokół nazw są pomijane. Parametr nie filtruje pól zagnieżdżonych.
+            Pominięcie parametru lub pusta wartość oznacza zwrot wszystkich dostępnych pól.
+            Jeśli chcesz otrzymać status, dodaj `status` do listy.
+            Nieznane lub niedostępne pola są pomijane.
+          schema:
+            type: string
+          example: "status,portfel,historiaOperacji,udzialKontInwestycyjnychWCzasie"
+      responses:
+        "200":
+          description: Dane portfela zwrócone pomyślnie (sprawdź `status.code` pod kątem błędów logicznych).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortfolioResponse"
+
+  /importOperacji.php:
+    post:
+      operationId: importOperations
+      summary: Import operacji do portfela (beta)
+      description: |
+        Importuje transakcje albo przepływy gotówkowe z danych JSON.
+        Endpoint używa tego samego klucza API co `/getPortfel.php`.
+
+        Dla importu transakcji pole `nazwa` może zawierać ticker (taki jak w myfund.pl, np. NASDAQ_AAPL, KGHM, LSE_IWDA.L), nazwę waloru (taką jak w myfund.pl np. "Apple Inc. (AAPL)", "Erste (dawniej Santander, Arka BZ WBK) FIO subfundusz Arka Akcji Polskich", "iShares Core MSCI World UCITS ETF USD (Acc) (IWDA.L)"),
+        ISIN albo nazwę zwyczajową. Rozpoznawanie waloru wykonywane jest w tej
+        kolejności, a na końcu po podobieństwie nazwy, dacie i cenie.
+      parameters:
+        - name: apiKey
+          in: query
+          required: false
+          description: Klucz API. Może być przekazany także w body JSON.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportOperationsRequest"
+      responses:
+        "200":
+          description: Import wykonany poprawnie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportOperationsResponse"
+        "400":
+          description: Błąd danych wejściowych albo walidacji importu.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          description: Błąd autoryzacji.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /importOperacjiPlik.php:
+    post:
+      operationId: importOperationsFile
+      summary: Import operacji z pliku (beta)
+      description: |
+        Importuje operacje z przesłanego pliku, używając tego samego modułu importu,
+        który jest dostępny w aplikacji webowej. Źródło pliku można przekazać w polu
+        `bank`, `source` albo `sourcePlugin`. Wartość musi być nazwą widoczną
+        w polu wyboru w module importu, np. `DM BDM (csv)` albo
+        `DM BOŚ - historia papierów (csv)`. Jeżeli źródło nie zostanie podane,
+        użyta zostanie wartość zapisana dla portfela przy ostatnim imporcie z modułu importu.
+
+        Obsługiwane formaty plików: `csv`, `xls`, `xlsx`, `pdf`, `html`, `htm`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ImportOperationsFileRequest"
+      responses:
+        "200":
+          description: Import z pliku wykonany poprawnie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportOperationsFileResponse"
+        "400":
+          description: Błąd danych wejściowych, pliku albo walidacji importu.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          description: Błąd autoryzacji.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+  /importOperacjiPPKPlik.php:
+    post:
+      operationId: importPPKOperationsFile
+      summary: Import operacji PPK z pliku z podziałem składek (beta)
+      description: |
+        Importuje operacje tym samym mechanizmem co moduł „Import operacji PPK” w serwisie.
+        Wymaga pliku, nazwy portfela i nazwy istniejącego konta PPK (bez dopisku subkonta).
+        Konto musi mieć aktywne subkonta Pracownik, Pracodawca i Państwo w PLN.
+        Składki są przypisywane do odpowiednich subkont; zachowane są kwoty z pliku,
+        podatek od składki pracodawcy i obsługa konwersji funduszy.
+
+        `bank` wskazuje źródło z listy w module importu PPK, np. `PKO PPK (csv/xlsx)`.
+        Akceptowany jest też kod źródła, np. `PKOPPK`. Aliasy: `source`, `sourcePlugin`.
+        Gdy źródło nie zostanie podane, używane jest ostatnie źródło zapisane dla portfela.
+        Musi to być źródło PPK. Format pliku musi odpowiadać wybranemu źródłu.
+
+        Procenty składek, potrzebne niektórym parserom do podziału łącznych wpłat,
+        domyślnie pochodzą z ustawień importu PPK portfela. Gdy ich brak, używane są
+        wartości 2 / 1.5 / 2 / 1.5 (podstawowa pracownika / pracodawcy, dodatkowa pracownika / pracodawcy).
+        Endpoint nie zmienia zapamiętanych ustawień importu portfela.
+        Domyślnie pomija duplikaty. Jeżeli wszystkie operacje są duplikatami,
+        zwraca sukces z `liczbaOperacji: 0` i `minData: null`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ImportPPKOperationsFileRequest"
+      responses:
+        "200":
+          description: Import PPK wykonany poprawnie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportPPKOperationsFileResponse"
+        "400":
+          description: Błąd pliku, źródła PPK, konta PPK lub walidacji operacji.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "401":
+          description: Błędny klucz API.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "403":
+          description: Portfel zablokowany do edycji.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "405":
+          description: Wymagana metoda POST.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+
+components:
+  securitySchemes:
+    apiKeyQuery:
+      type: apiKey
+      in: query
+      name: apiKey
+      description: Klucz API wygenerowany w ustawieniach konta.
+
+  schemas:
+    PortfoliosResponse:
+      type: object
+      required: [status, portfele]
+      properties:
+        status:
+          type: object
+          required: [code]
+          properties:
+            code:
+              type: string
+              description: Kod wyniku. `0` oznacza sukces.
+            text:
+              type: string
+        portfele:
+          type: array
+          items:
+            type: object
+            properties:
+              nazwa:
+                type: string
+              id:
+                type: string
+                description: ID portfela.
+              grupa:
+                type: string
+              subportfel:
+                type: string
+              udostepniony:
+                type: integer
+                enum: [0, 1]
+                description: Czy portfel został udostępniony przez innego użytkownika (pole opcjonalne).
+
+    PortfolioResponse:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/Status"
+        portfel:
+          $ref: "#/components/schemas/PortfolioSummary"
+        tickers:
+          type: object
+          description: |
+            Poszczególne pozycje portfela, kluczowane wewnętrznym ID numerycznym (jako string).
+            Przykład: `{"7": {Ticker}, "1": {Ticker}, ...}`.
+          additionalProperties:
+            $ref: "#/components/schemas/Ticker"
+        struktura:
+          type: object
+          description: |
+            Podział alokacji wg typu aktywów. Klucze to nazwy kategorii
+            (np. `"ETFs - international"`), wartości to kwoty zakodowane jako stringi.
+          additionalProperties:
+            type: string
+        strukturaKolor:
+          type: object
+          description: |
+            Mapa kolorów dla kategorii `struktura`.
+            Klucze odpowiadają kluczom `struktura`, wartości to kolory w formacie hex.
+          additionalProperties:
+            type: string
+        strukturaWalory:
+          type: object
+          description: |
+            Alokacja per walor. Klucze to nazwy wyświetlane walorów,
+            wartości to udziały procentowe (integer lub float).
+          additionalProperties:
+            type: [integer, number, string]
+        strukturaWaloryKolor:
+          type: object
+          description: |
+            Mapa kolorów dla pozycji `strukturaWalory`.
+            Klucze odpowiadają kluczom `strukturaWalory`, wartości to kolory hex.
+          additionalProperties:
+            type: string
+        zyskWCzasie:
+          $ref: "#/components/schemas/TimeSeriesMap"
+          description: Dzienny zysk/strata portfela w czasie.
+        wartoscWCzasie:
+          $ref: "#/components/schemas/TimeSeriesMap"
+          description: Dzienna wartość całkowita portfela w czasie.
+        wkladWCzasie:
+          $ref: "#/components/schemas/TimeSeriesMap"
+          description: Dzienny wkład własny w czasie.
+        benchWCzasie:
+          $ref: "#/components/schemas/TimeSeriesMap"
+          description: Stopa zwrotu benchmarku w czasie.
+        stopaZwrotuWCzasie:
+          $ref: "#/components/schemas/TimeSeriesMap"
+          description: Stopa zwrotu portfela w czasie.
+        zmianaDzienna:
+          $ref: "#/components/schemas/TimeSeriesMap"
+          description: Dzienne zmiany wartości portfela.
+        dywidendyWCzasie:
+          type: object
+          description: Dywidendy w czasie. Pole zwracane domyślnie, o ile nie zostało wykluczone przez `scope`.
+          properties:
+            waluta:
+              type: string
+              description: Waluta bazowa, w której podane są wartości dywidend.
+            liczba:
+              type: string
+              description: Liczba zdarzeń dywidendowych.
+            walory:
+              type: object
+              description: Mapa tickerów na nazwy walorów.
+              additionalProperties:
+                type: string
+            zdarzenia:
+              type: object
+              description: Zdarzenia dywidendowe kluczowane jako `_0`, `_1` itd.
+              additionalProperties:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    format: date
+                  ticker:
+                    type: string
+                  nazwa:
+                    type: string
+                  wartosc:
+                    type: string
+                    description: Wartość dywidendy w walucie bazowej portfela.
+                  yoc:
+                    type: string
+                    description: Stopa dywidendy względem kosztu nabycia w procentach; pusta wartość oznacza brak danych.
+            podsumowanieRoczne:
+              type: object
+              description: Podsumowanie bieżącego roku, jeśli jest dostępne dla portfela.
+              properties:
+                rok:
+                  type: integer
+                wyplacone:
+                  type: number
+                potencjalne:
+                  type: number
+        historiaOperacji:
+          type: object
+          description: Historia operacji kluczowana jako `0`, `1` itd. Pole zwracane domyślnie, o ile nie zostało wykluczone przez `scope`.
+          additionalProperties:
+            type: object
+            properties:
+              ticker:
+                type: string
+              isin:
+                type: string
+                description: ISIN waloru, także dla zamkniętych pozycji. Pusty string oznacza brak ISIN (np. operacja gotówkowa).
+        historiaOperacjiLiczba:
+          type: string
+          description: Liczba operacji w historii. Pole zwracane domyślnie, o ile nie zostało wykluczone przez `scope`.
+        udzialKontInwestycyjnychWCzasie:
+          type: object
+          description: |
+            Dane raportu SkladPortfelaKonta przed agregacją wykresu: dostępne wyceny
+            na koniec miesiąca i punkt na dziś z bieżących pozycji przed grupowaniem.
+            Portfel grupowy obejmuje jego portfele składowe; podportfel własne wyceny i pozycje.
+            Konta o tej samej nazwie są sumowane, tak jak na wykresie.
+            Brakujące konto w danej dacie ma wartość i udział 0.
+            Udziały historyczne są liczone względem sumy dodatnich wartości kont,
+            a dzisiejsze względem sumy netto, zgodnie z raportem.
+            Pole zwracane domyślnie, obsługiwane przez scope.
+          properties:
+            waluta:
+              type: string
+              description: Waluta bazowa portfela; wartości przeliczane kursem z daty wyceny.
+            konta:
+              type: object
+              description: Nazwy kont w kolejności alfabetycznej, klucze 0, 1 itd.
+              additionalProperties:
+                type: string
+            dane:
+              type: object
+              description: Mapa dat YYYY-MM-DD na mapy nazw kont.
+              additionalProperties:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    wartosc:
+                      type: string
+                      description: Wartość konta w walucie bazowej, z dokładnością do dwóch miejsc.
+                    udzial:
+                      type: string
+                      description: Udział procentowy z dokładnością do dwóch miejsc.
+          example:
+            waluta: PLN
+            konta: {"0": "Bossa", "1": "Konto gotówkowe"}
+            dane:
+              "2026-09-30":
+                Bossa: {wartosc: "7500.00", udzial: "75.00"}
+                Konto gotówkowe: {wartosc: "2500.00", udzial: "25.00"}
+        zobowiazania:
+          type: object
+          description: |
+            Aktywne zobowiązania portfela na bieżący dzień, kluczowane jako `0`, `1` itd.
+            Dla portfela grupowego lub podportfela obejmują zobowiązania portfeli składowych.
+            Przy braku zobowiązań zwracany jest pusty obiekt `{}`.
+            Pole zwracane domyślnie, o ile nie zostało wykluczone przez `scope`.
+          additionalProperties:
+            type: object
+            properties:
+              ticker:
+                type: string
+                description: Nazwa zobowiązania.
+              waluta:
+                type: string
+                description: Waluta zobowiązania.
+              wartoscPoczatkowa:
+                type: string
+                description: Początkowa kwota zobowiązania w jego walucie.
+              wartoscAktualna:
+                type: string
+                description: Kapitał pozostały do spłaty w walucie zobowiązania.
+              wartoscAktualnaWaluta:
+                type: string
+                description: Kapitał pozostały do spłaty przeliczony na walutę bazową portfela.
+              wartoscAktualnaPLN:
+                type: string
+                description: Kapitał pozostały do spłaty przeliczony na PLN.
+              sumaSplat:
+                type: string
+                description: Suma spłat kapitału od daty początkowej raportu, w walucie zobowiązania.
+              sumaOdsetek:
+                type: string
+                description: Suma spłat odsetek od daty początkowej raportu, w walucie zobowiązania.
+              zysk:
+                type: string
+                description: Zysk wynikający ze zmian kursów walut, w walucie bazowej portfela.
+              udzial:
+                type: string
+                description: Udział zobowiązania w łącznej wartości zobowiązań w procentach.
+        zobowiazaniaLiczba:
+          type: string
+          description: Liczba aktywnych zobowiązań. Pole zwracane domyślnie, o ile nie zostało wykluczone przez `scope`.
+        zobowiazaniaPodsumowanie:
+          type: object
+          description: |
+            Łączne wartości aktywnych zobowiązań. Pole zwracane domyślnie,
+            o ile nie zostało wykluczone przez `scope`.
+            Sumy w walutach zobowiązań są puste, jeśli zobowiązania mają różne waluty
+            lub lista jest pusta. Sumy w walucie bazowej portfela i PLN są zawsze liczbami zapisanymi jako stringi.
+          properties:
+            wartoscPoczatkowa:
+              type: string
+            wartoscAktualna:
+              type: string
+            sumaSplat:
+              type: string
+            sumaOdsetek:
+              type: string
+            wartoscAktualnaWaluta:
+              type: string
+            wartoscAktualnaPLN:
+              type: string
+            zysk:
+              type: string
+
+    Status:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: |
+            Kod wyniku (zwracany jako string).
+            - `"0"` — sukces
+            - `"1"` — błąd (szczegóły w `text`)
+            - `"7"` — portfel nie znaleziony
+          enum: ["0", "1", "7"]
+        text:
+          type: string
+          description: Komunikat tekstowy (obecny zarówno przy sukcesie, jak i błędzie).
+
+    ImportOperationsRequest:
+      type: object
+      required: [portfel, typImportu, operacje]
+      properties:
+        apiKey:
+          type: string
+          description: Klucz API, alternatywnie przekazywany jako query parameter.
+        portfel:
+          type: string
+          description: Nazwa portfela, do którego importowane są operacje.
+        typImportu:
+          type: string
+          enum: [transakcji, przepływów]
+          description: Typ importu.
+        kontoGotowkowe:
+          type: string
+          default: Gotówka
+          description: Nazwa konta gotówkowego.
+        kontoInwestycyjne:
+          type: string
+          default: Bez konta
+          description: Nazwa konta inwestycyjnego dla transakcji.
+        duplikaty:
+          type: integer
+          enum: [0, 1, 2]
+          default: 1
+          description: 0 nie dodawaj, 1 dodaj tylko niepowtarzalne, 2 dodaj wszystkie.
+        sprawdzCene:
+          type: string
+          enum: ["true", "false"]
+          default: "true"
+          description: Czy sprawdzać cenę operacji podczas walidacji. Opcja dotyczy importu transakcji.
+        operacje:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/ImportTransaction"
+              - $ref: "#/components/schemas/ImportCashflow"
+
+    ImportTransaction:
+      type: object
+      required: [data, nazwa, operacja, ilosc, cena]
+      properties:
+        data:
+          type: string
+          format: YYYY-MM-DD
+          example: "2026-05-10"
+        czas:
+          type: string
+          format: HH-MM-SS
+          example: "13:45:00"
+        nazwa:
+          type: string
+          description: Ticker (taki jak w myfund.pl), nazwa waloru (taka jak w myfund.pl), ISIN albo nazwa zwyczajowa.
+        operacja:
+          type: string
+          description: Typ operacji zgodny z importem z pliku, np. Kupno, Sprzedaż, Dywidenda.
+        ilosc:
+          type: number
+        cena:
+          type: number
+        walutaCeny:
+          type: string
+        prowizja:
+          type: number
+        kursP:
+          type: number
+        podatek:
+          type: number
+        opis:
+          type: string
+
+    ImportCashflow:
+      type: object
+      required: [data, operacja, kwota]
+      properties:
+        data:
+          type: string
+          format: YYYY-MM-DD
+          example: "2026-05-10"
+        czas:
+          type: string
+          format: HH-MM-SS
+          example: "13:45:00"
+        operacja:
+          type: string
+          description: Typ przepływu zgodny z importem z pliku, np. Wpłata, Wypłata, Koszt, Odsetki.
+        kwota:
+          type: number
+        waluta:
+          type: string
+        typ:
+          type: string
+        podatek:
+          type: number
+        opis:
+          type: string
+
+    ImportPPKOperationsFileRequest:
+      type: object
+      required: [apiKey, portfel, kontoPPK, plik]
+      properties:
+        apiKey:
+          type: string
+          description: Ten sam klucz API co dla pozostałych endpointów; można też przekazać w query.
+        portfel:
+          type: string
+          description: Nazwa zwykłego portfela dostępnego dla użytkownika klucza API.
+        kontoPPK:
+          type: string
+          description: Dokładna nazwa konta PPK w wybranym portfelu, bez dopisku Pracownik/Pracodawca/Państwo. Alias pola to konto.
+          example: Moje PPK
+        plik:
+          type: string
+          format: binary
+          description: Plik eksportu PPK mniejszy niż 5 000 000 bajtów. Aliasy pola to file i imagefile. Format zgodny z wybranym źródłem (csv, xls, xlsx, html, htm).
+        bank:
+          type: string
+          example: PKO PPK (csv/xlsx)
+          description: Nazwa lub kod źródła PPK. Wymagany, gdy portfel nie ma zapamiętanego źródła PPK.
+        duplikaty:
+          type: integer
+          enum: [0, 1, 2]
+          default: 1
+          description: 0 zgłoś błąd przy duplikacie, 1 pomiń duplikaty, 2 dodaj wszystkie.
+        sprawdzCene:
+          type: string
+          enum: ["true", "false"]
+          default: "true"
+        skladkaPodPracownik:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Procent podstawowej składki pracownika; nadpisuje zapamiętaną wartość dla tego żądania.
+        skladkaPodPracodawca:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Procent podstawowej składki pracodawcy. Suma podstawowych składek musi być dodatnia.
+        skladkaDodPracownik:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Procent dodatkowej składki pracownika.
+        skladkaDodPracodawca:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Procent dodatkowej składki pracodawcy.
+        force2:
+          type: integer
+          enum: [0, 1]
+          default: 0
+          description: Wymuś drugi próg podatkowy przy obliczaniu podatku od składki pracodawcy, tak jak w module PPK.
+        force3:
+          type: integer
+          enum: [0, 1]
+          default: 0
+          description: Wymuś zerowy podatek od składki pracodawcy. Wyklucza się z force2.
+
+    ImportPPKOperationsFileResponse:
+      type: object
+      required: [status, import]
+      properties:
+        status:
+          type: object
+          properties:
+            code: {type: string, example: "0"}
+            text: {type: string}
+        import:
+          type: object
+          properties:
+            portfel: {type: string}
+            kontoPPK: {type: string}
+            bank: {type: string, example: PKOPPK}
+            źródło: {type: string, example: PKO PPK (csv/xlsx)}
+            plik: {type: string}
+            liczbaOperacji:
+              type: integer
+              description: Liczba wierszy operacji po walidacji i pominięciu duplikatów; nie obejmuje tworzonych dodatkowo przepływów.
+            pominiete: {type: string}
+            minData:
+              type: [string, "null"]
+              description: Najwcześniejsza data importowanych operacji lub null, gdy nie dodano żadnej operacji.
+
+    ImportOperationsFileRequest:
+      type: object
+      required: [apiKey, portfel, plik]
+      properties:
+        apiKey:
+          type: string
+          description: Klucz API wygenerowany w ustawieniach konta.
+        portfel:
+          type: string
+          description: Nazwa portfela, do którego importowane są operacje.
+        plik:
+          type: string
+          format: binary
+          description: |
+            Plik do importu. Akceptowane rozszerzenia: csv, xls, xlsx, pdf, html, htm.
+        bank:
+          type: string
+          description: |
+            Opcjonalne źródło pliku. Podaj nazwę dokładnie taką, jak w polu wyboru
+            w module importu, np. `DM BDM (csv)` albo `DM BOŚ - historia papierów (csv)`.
+            Jeżeli pole jest puste, używany jest ostatnio użyty moduł importu.
+        kontoGotowkowe:
+          type: string
+          default: Gotówka
+          description: Nazwa konta gotówkowego używanego do importu.
+        kontoInwestycyjne:
+          type: string
+          default: Bez konta
+          description: Nazwa konta inwestycyjnego używanego do importu.
+        duplikaty:
+          type: integer
+          enum: [0, 1, 2]
+          default: 1
+          description: 0 nie dodawaj, 1 dodaj tylko niepowtarzalne, 2 dodaj wszystkie.
+        sprawdzCene:
+          type: string
+          enum: ["true", "false"]
+          default: "true"
+          description: Czy sprawdzać cenę operacji podczas walidacji.
+
+    ImportOperationsFileResponse:
+      type: object
+      required: [status, import]
+      properties:
+        status:
+          $ref: "#/components/schemas/Status"
+        import:
+          type: object
+          properties:
+            portfel:
+              type: string
+            bank:
+              type: string
+              description: Wewnętrzny kod modułu importu wybrany na podstawie źródła.
+            źródło:
+              type: string
+              description: Nazwa źródła pliku zgodna z opisem w polu wyboru modułu importu.
+            plik:
+              type: string
+            liczbaOperacji:
+              type: integer
+            pominiete:
+              type: string
+            minData:
+              type: string
+              format: date
+
+    ImportOperationsResponse:
+      type: object
+      required: [status, import]
+      properties:
+        status:
+          $ref: "#/components/schemas/Status"
+        import:
+          type: object
+          properties:
+            portfel:
+              type: string
+            typ:
+              type: string
+            liczbaOperacji:
+              type: integer
+            pominiete:
+              type: string
+            minData:
+              type: string
+              format: date
+
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/Status"
+
+    PortfolioSummary:
+      type: object
+      description: |
+        Zagregowane metryki portfela. Odpowiada wierszowi „Cały portfel"
+        w tabeli składu portfela na dashboardzie.
+
+        **Uwaga dot. typów:** Większość pól liczbowych to natywne JSON numbers,
+        ale `wartosc` i wszystkie pola stóp zwrotu za okresy (`zmianaW` … `zmianaRdD`)
+        to stringi (stopy zwrotu mogą mieć prefiks `+`).
+      properties:
+        benchName:
+          type: string
+          description: Nazwa przypisanego benchmarku.
+        tickersCount:
+          type: integer
+          description: Liczba pozycji w portfelu.
+        tickerClear:
+          type: string
+          description: Oczyszczony symbol tickera.
+        nazwa:
+          type: string
+          description: Nazwa wyświetlana portfela.
+        waluta:
+          type: string
+          description: Waluta bazowa portfela (np. `PLN`, `USD`).
+        data:
+          type: string
+          description: Data ostatniego punktu danych (YYYY-MM-DD lub `&nbsp;` jeśli niedostępna).
+        close:
+          type: number
+          description: Ostatnia cena zamknięcia jednostki.
+        zmianaDzienna:
+          type: number
+          description: Zmiana dzienna (bezwzględna lub procentowa).
+        liczbaJednostek:
+          type: number
+          description: Liczba posiadanych jednostek.
+        typ:
+          type: string
+          description: Etykieta typu aktywów (np. `Akcje`, `ETF`, `Obligacje`).
+        typOrg:
+          type: string
+          description: Oryginalna (surowa) wartość typu aktywów.
+        wartosc:
+          type: string
+          description: Aktualna wartość całkowita w walucie portfela (liczba zakodowana jako string).
+        udzial:
+          type: [integer, number]
+          description: Udział procentowy w całkowitej wartości portfela.
+        zmiana:
+          type: number
+          description: Całkowita stopa zwrotu (%) od zakupu.
+        zysk:
+          type: number
+          description: Całkowity zysk/strata w walucie portfela.
+        kontoInvName:
+          type: string
+          description: Nazwa konta inwestycyjnego (np. IKE, IKZE, nazwa brokera).
+        sektor:
+          type: string
+          description: Klasyfikacja sektorowa.
+        zyskDzienny:
+          type: number
+          description: Dzienny zysk/strata w walucie portfela.
+        grupowanieKonto:
+          type: string
+          description: Klucz grupowania — wg konta inwestycyjnego.
+        grupowanieSektor:
+          type: string
+          description: Klucz grupowania — wg sektora.
+        grupowanieWalor:
+          type: string
+          description: Klucz grupowania — wg waloru.
+        grupowanieRyzyko:
+          type: string
+          description: Klucz grupowania — wg poziomu ryzyka.
+        grupowaniePortfel:
+          type: string
+          description: Klucz grupowania — wg portfela.
+        zmianaW:
+          type: string
+          description: Stopa zwrotu za ostatni 1 tydzień (%). String, może mieć prefiks `+`.
+        zmiana2W:
+          type: string
+          description: Stopa zwrotu za ostatnie 2 tygodnie (%). String, może mieć prefiks `+`.
+        zmianaM:
+          type: string
+          description: Stopa zwrotu za ostatni 1 miesiąc (%). String, może mieć prefiks `+`.
+        zmiana3M:
+          type: string
+          description: Stopa zwrotu za ostatnie 3 miesiące (%). String, może mieć prefiks `+`.
+        zmiana6M:
+          type: string
+          description: Stopa zwrotu za ostatnie 6 miesięcy (%). String, może mieć prefiks `+`.
+        zmianaR:
+          type: string
+          description: Stopa zwrotu za ostatni 1 rok (%). String, może mieć prefiks `+`.
+        zmiana3R:
+          type: string
+          description: Stopa zwrotu za ostatnie 3 lata (%). String, może mieć prefiks `+`.
+        zmiana5R:
+          type: string
+          description: Stopa zwrotu za ostatnie 5 lat (%). String, może mieć prefiks `+`.
+        zmianaMdD:
+          type: string
+          description: Stopa zwrotu od początku miesiąca (%). String, może mieć prefiks `+`.
+        zmianaRdD:
+          type: string
+          description: Stopa zwrotu od początku roku (%). String, może mieć prefiks `+`.
+
+    Ticker:
+      type: object
+      description: |
+        Pojedyncza pozycja (walor) w portfelu.
+
+        **Uwaga dot. typów:** Większość wartości liczbowych jest zwracana jako stringi.
+        `close` może być natywną liczbą lub stringiem w zależności od typu waloru.
+      properties:
+        tickerClear:
+          type: string
+          description: Oczyszczony symbol tickera (np. `NYSE_ARE`, `LSE_HMCD.L`).
+        nazwa:
+          type: string
+          description: Pełna nazwa waloru.
+        data:
+          type: string
+          description: Data ostatnich danych cenowych (YYYY-MM-DD).
+        close:
+          type: [number, string]
+          description: Ostatnia cena zamknięcia (liczba lub string w zależności od typu waloru).
+        zmianaDzienna:
+          type: string
+          description: Dzienna zmiana ceny (%). Liczba zakodowana jako string.
+        liczbaJednostek:
+          type: [number, string]
+          description: Liczba posiadanych jednostek/akcji. Liczba zakodowana jako string.
+        typ:
+          type: string
+          description: Etykieta typu aktywów.
+        typOrg:
+          type: string
+          description: Oryginalna (surowa) wartość typu aktywów.
+        wartosc:
+          type: string
+          description: Aktualna wartość pozycji w walucie portfela. Liczba zakodowana jako string.
+        udzial:
+          type: string
+          description: Udział pozycji jako procent całego portfela. Liczba zakodowana jako string.
+        zmiana:
+          type: string
+          description: Całkowita stopa zwrotu od zakupu (%). Liczba zakodowana jako string.
+        cenaZakupu:
+          type: [number, string]
+          description: Średnia cena zakupu za jednostkę. Liczba lub string.
+        zysk:
+          type: string
+          description: Całkowity zysk/strata w walucie portfela. Liczba zakodowana jako string.
+        kontoInvName:
+          type: string
+          description: Nazwa konta inwestycyjnego.
+        sektor:
+          type: string
+          description: Klasyfikacja sektorowa.
+        ryzyko:
+          type: string
+          description: Klasyfikacja poziomu ryzyka.
+        portfelOrg:
+          type: string
+          description: Oryginalna nazwa portfela, do którego należy walor.
+        dataInvStart:
+          type: string
+          description: Data rozpoczęcia inwestycji (YYYY-MM-DD).
+        okresInwestycji:
+          type: [integer, string]
+          description: Okres inwestycji w dniach lub `"---"` jeśli nie dotyczy.
+
+    TimeSeriesMap:
+      type: object
+      description: |
+        Szereg czasowy jako mapa kluczowana datami. Klucze to daty (YYYY-MM-DD),
+        wartości to liczby zakodowane jako stringi.
+      additionalProperties:
+        type: string

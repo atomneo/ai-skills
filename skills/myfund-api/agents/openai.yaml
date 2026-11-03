@@ -1,0 +1,4 @@
+interface:
+  display_name: "myFund.pl API v1"
+  short_description: "Portfele i import operacji przez myFund.pl API v1"
+  default_prompt: "Użyj $myfund-api, aby pobrać listę moich portfeli i podsumować wybrany portfel."
