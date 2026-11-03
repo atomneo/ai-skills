@@ -1,13 +1,13 @@
-# Procedury myFund.pl API v1
+# myFund.pl API v1 workflows
 
-## Odczyt
+## Reading
 
-`getPortfele.php` przyjmuje `apiKey` i opcjonalne `format=json`. Lista `portfele`
-zawiera m.in. `nazwa`, `id`, `grupa`, `subportfel`, opcjonalnie `udostepniony`.
-Pusta lista jest poprawnym wynikiem. Do kolejnych żądań używaj `nazwa`.
-`getPortfel.php` wymaga `apiKey`, `portfel`, `format=json`.
+`getPortfele.php` accepts `apiKey` and optional `format=json`. The `portfele` list
+includes `nazwa`, `id`, `grupa`, `subportfel`, and optionally `udostepniony`.
+An empty list is valid. Use `nazwa` for subsequent requests.
+`getPortfel.php` requires `apiKey`, `portfel`, and `format=json`.
 
-Przykład Python 3 (standardowa biblioteka, klucz już ustawiony w otoczeniu):
+Python 3 example (standard library, key already set in the environment):
 
 ```python
 import json
@@ -18,7 +18,7 @@ import urllib.request
 
 params = urllib.parse.urlencode({
     "apiKey": os.environ["MYFUND_API_KEY"],
-    "portfel": "Mój Portfel",  # zastąp nazwą wybraną przez użytkownika
+    "portfel": "Mój Portfel",  # replace with the name selected by the user
     "format": "json",
     "scope": "status,portfel,tickers",
 })
@@ -31,33 +31,34 @@ try:
 except urllib.error.HTTPError as error:
     raise SystemExit(f"myFund: HTTP {error.code}") from None
 except (urllib.error.URLError, TimeoutError):
-    raise SystemExit("myFund: błąd połączenia; sprawdź dostępność usługi") from None
+    raise SystemExit("myFund: connection error; check service availability") from None
 if str(data.get("status", {}).get("code")) != "0":
-    raise SystemExit("myFund: błąd API lub brak statusu; sprawdź odpowiedź lokalnie")
-# Przetwarzaj data lokalnie; nie drukuj całego portfela bez potrzeby.
+    raise SystemExit("myFund: API error or missing status; inspect the response locally")
+# Process data locally; do not print the entire portfolio unnecessarily.
 ```
 
-Dla gzip wyślij `Accept-Encoding: gzip` i obsłuż dekompresję klientem;
-powyższy przykład nie żąda gzip. Nie dodawaj nagłówka bez obsługi odpowiedzi.
+For gzip, send `Accept-Encoding: gzip` and handle decompression in the client;
+the example above does not request gzip. Do not add the header without response handling.
 
-Typowe zakresy `scope` (zawsze ze `status`):
+Typical `scope` selections (always include `status`):
 
-- podsumowanie: `portfel,tickers,struktura,strukturaWalory`;
-- wyniki: `zyskWCzasie,wartoscWCzasie,wkladWCzasie,benchWCzasie,stopaZwrotuWCzasie`;
-- historia: `historiaOperacji,historiaOperacjiLiczba` (ISIN może być pusty);
-- dywidendy: `dywidendyWCzasie`;
-- konta: `udzialKontInwestycyjnychWCzasie`;
-- zobowiązania: `zobowiazania,zobowiazaniaLiczba,zobowiazaniaPodsumowanie`.
+- summary: `portfel,tickers,struktura,strukturaWalory`;
+- performance: `zyskWCzasie,wartoscWCzasie,wkladWCzasie,benchWCzasie,stopaZwrotuWCzasie`;
+- history: `historiaOperacji,historiaOperacjiLiczba` (ISIN may be empty);
+- dividends: `dywidendyWCzasie`;
+- accounts: `udzialKontInwestycyjnychWCzasie`;
+- liabilities: `zobowiazania,zobowiazaniaLiczba,zobowiazaniaPodsumowanie`.
 
-Historyczne udziały kont odnoszą się do sumy dodatnich wycen, dzisiejsze do sumy
-netto. Brak konta w dacie oznacza zero według opisu tego raportu. Nie przenoś tej
-reguły na inne brakujące pola. Nie sumuj kwot różnych walut bez przeliczenia.
+Historical account shares refer to the sum of positive valuations; today's shares
+refer to the net sum. According to this report's description, an absent account on
+a date means zero. Do not extend this rule to other missing fields.
+Do not sum amounts in different currencies without conversion.
 
-## Import JSON
+## JSON import
 
-Wyślij JSON do `importOperacji.php`, `Content-Type: application/json`.
-Wymagane: `portfel`, `typImportu`, `operacje`, a także klucz `apiKey` w body
-lub query. Poniższy przykład jest podglądem danych, nie poleceniem wykonania:
+Send JSON to `importOperacji.php`, with `Content-Type: application/json`.
+Required: `portfel`, `typImportu`, `operacje`, and the `apiKey` key in the body
+or query. The following example is a data preview, not an instruction to execute:
 
 ```json
 {
@@ -74,51 +75,52 @@ lub query. Poniższy przykład jest podglądem danych, nie poleceniem wykonania:
 }
 ```
 
-Dla `typImportu="transakcji"` wymagane pola operacji to `data`, `nazwa`,
-`operacja`, `ilosc`, `cena`. Rozpoznawanie waloru: ticker myFund, dokładna nazwa,
-ISIN, nazwa zwyczajowa, następnie podobieństwo nazwy/data/cena. Preferuj jednoznaczny
-identyfikator potwierdzony przez użytkownika lub dane źródłowe.
+For `typImportu="transakcji"`, required operation fields are `data`, `nazwa`,
+`operacja`, `ilosc`, and `cena`. Instrument matching order: myFund ticker, exact name,
+ISIN, common name, then similarity of name/date/price. Prefer an unambiguous
+identifier confirmed by the user or source data.
 
-Dla `typImportu="przepływów"` wymagane są `data`, `operacja`, `kwota`;
-przykładowe typy to `Wpłata`, `Wypłata`, `Koszt`, `Odsetki`.
-Pozostałe pola i ich typy sprawdź w schematach `ImportTransaction` i `ImportCashflow`.
-Data: `YYYY-MM-DD`. Przykład czasu w specyfikacji to `13:45:00`, choć etykieta
-`format` mówi `HH-MM-SS`; stosuj przykład i odnotuj rozbieżność przy integracji.
-`sprawdzCene` jest stringiem `"true"` lub `"false"`, a nie booleanem.
+For `typImportu="przepływów"`, required fields are `data`, `operacja`, and `kwota`;
+example types are `Wpłata`, `Wypłata`, `Koszt`, and `Odsetki`.
+Check other fields and their types in the `ImportTransaction` and `ImportCashflow` schemas.
+Date: `YYYY-MM-DD`. The specification's time example is `13:45:00`, although its
+`format` label says `HH-MM-SS`; follow the example and note the discrepancy when integrating.
+`sprawdzCene` is the string `"true"` or `"false"`, not a boolean.
 
-## Import pliku brokera
+## Broker file import
 
 `POST /importOperacjiPlik.php`, multipart: `apiKey`, `portfel`, `plik`.
-Formaty: csv, xls, xlsx, pdf, html, htm. `bank` musi odpowiadać nazwie w interfejsie
-importu, np. `DM BDM (csv)`. Aliasy: `source`, `sourcePlugin`.
-Bez źródła serwer używa ostatniego ustawienia portfela; nie zakładaj, że pasuje ono
-do pliku. Opcjonalnie: `kontoGotowkowe`, `kontoInwestycyjne`, `duplikaty`, `sprawdzCene`.
-Zachowaj oryginalny plik i jego nazwę; nie przerabiaj danych bez potrzeby.
+Formats: csv, xls, xlsx, pdf, html, htm. `bank` must match the name in the import UI,
+e.g. `DM BDM (csv)`. Aliases: `source`, `sourcePlugin`.
+Without a source, the server uses the portfolio's last setting; do not assume it
+matches the file. Optional: `kontoGotowkowe`, `kontoInwestycyjne`, `duplikaty`, `sprawdzCene`.
+Preserve the original file and filename; do not transform the data unnecessarily.
 
-## Import PPK
+## PPK import
 
 `POST /importOperacjiPPKPlik.php`, multipart: `apiKey`, `portfel`, `kontoPPK`, `plik`.
-Użyj nazwy konta bez dopisków Pracownik/Pracodawca/Państwo; alias to `konto`.
-Konto musi mieć aktywne wszystkie trzy subkonta w PLN. Plik ma być **mniejszy niż
-5 000 000 bajtów**, w formacie csv/xls/xlsx/html/htm zgodnym ze źródłem.
-Aliasy pliku: `file`, `imagefile`. `bank`: nazwa lub kod źródła PPK,
-np. `PKO PPK (csv/xlsx)` lub `PKOPPK`; aliasy `source`, `sourcePlugin`.
+Use the account name without the Pracownik/Pracodawca/Państwo suffixes; the alias is `konto`.
+The account must have all three PLN subaccounts enabled. The file must be **smaller than
+5,000,000 bytes**, in csv/xls/xlsx/html/htm format matching the source.
+File aliases: `file`, `imagefile`. `bank`: PPK source name or code,
+e.g. `PKO PPK (csv/xlsx)` or `PKOPPK`; aliases: `source`, `sourcePlugin`.
 
-Procenty składek (`skladkaPodPracownik`, `skladkaPodPracodawca`,
-`skladkaDodPracownik`, `skladkaDodPracodawca`) są w zakresie 0–100; suma
-podstawowych musi być dodatnia. Serwer używa ustawień portfela, a przy ich braku
-2 / 1.5 / 2 / 1.5. Nadpisuj tylko według danych użytkownika. `force2` i `force3`
-(0/1) wykluczają się. Endpoint nie zmienia zapamiętanych ustawień portfela.
+Contribution percentages (`skladkaPodPracownik`, `skladkaPodPracodawca`,
+`skladkaDodPracownik`, `skladkaDodPracodawca`) range from 0 to 100; the sum of
+basic contributions must be positive. The server uses portfolio settings, or
+2 / 1.5 / 2 / 1.5 if absent. Override only according to user data. `force2` and `force3`
+(0/1) are mutually exclusive. The endpoint does not change saved portfolio settings.
 
-W PPK `duplikaty=0` zgłasza błąd przy duplikacie, `1` pomija, `2` dodaje wszystkie.
-Dla pozostałych importów dokumentacja opisuje `0` jako „nie dodawaj”, bez tej samej
-gwarancji błędu. Nie ujednolicaj tych znaczeń. Wszystkie wiersze pominięte jako
-duplikaty w PPK mogą dać sukces, `liczbaOperacji=0`, `minData=null`.
+For PPK, `duplikaty=0` raises an error on duplicates, `1` skips them, and `2` adds all.
+For other imports, the documentation describes `0` as “do not add,” without the same
+error guarantee. Do not conflate these meanings. When all PPK rows are skipped as
+duplicates, the result may be success with `liczbaOperacji=0` and `minData=null`.
 
-## Błędy
+## Errors
 
-Sprawdzaj odpowiedzi opisane dla konkretnego endpointu. `getPortfele.php` opisuje
-401, 403 i 502; importy 400 i 401, a PPK także 403 (blokada edycji), 405 (metoda).
-Nie próbuj naprawiać 401 przez regenerację klucza bez zlecenia użytkownika.
-Przy niepewnym wyniku importu zatrzymaj ponawianie i ustal, czy operacje zapisano.
-Nie traktuj późniejszego odczytu z cache jako dowodu, że import nie nastąpił.
+Check responses documented for the specific endpoint. `getPortfele.php` documents
+401, 403, and 502; imports document 400 and 401, with PPK also documenting
+403 (editing blocked) and 405 (method).
+Do not try to fix 401 by regenerating the key without a user instruction.
+When an import outcome is uncertain, stop retrying and determine whether operations were saved.
+Do not treat a later cached read as evidence that the import did not occur.

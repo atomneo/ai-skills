@@ -1,6 +1,6 @@
 ---
 name: ynab-api
-description: Obsługuj YNAB API v1 — pobieraj plany, konta, kategorie i transakcje, synchronizuj zmiany oraz twórz i aktualizuj dane planu. Używaj przy integracjach z YNAB lub pracy z danymi tego API.
+description: Work with YNAB API v1 — retrieve plans, accounts, categories, and transactions, synchronize changes, and create or update plan data. Use for YNAB integrations or tasks involving data from this API.
 metadata:
   version: "1.0.0"
   api-version: "v1"
@@ -10,80 +10,81 @@ metadata:
 
 # YNAB API v1
 
-Baza: `https://api.ynab.com/v1`. Snapshot dokumentacji: 2026-11-03.
-`1.88.0` to wydanie API, `3.1.1` format OpenAPI, `1.0.0` wersja skilla.
-Dokumentacja używa `/plans` i `plan_id`; nie zastępuj ich dawnym `/budgets`.
+Base URL: `https://api.ynab.com/v1`. Documentation snapshot: 2026-11-03.
+`1.88.0` is the API release, `3.1.1` the OpenAPI format, and `1.0.0` the skill version.
+The documentation uses `/plans` and `plan_id`; do not replace them with the older `/budgets`.
 
-## Wybierz operację
+## Choose an operation
 
-W ścieżkach poniżej prefiks `P` oznacza `/plans/{plan_id}`.
+In the paths below, prefix `P` stands for `/plans/{plan_id}`.
 
-| Potrzeba | Metoda i ścieżka |
+| Need | Method and path |
 | --- | --- |
-| Użytkownik, lista i ustawienia planu | `GET /user`, `GET /plans`, `GET P/settings` |
-| Plan, konta, kategorie, odbiorcy | `GET P`, `GET P/accounts`, `GET P/categories`, `GET P/payees` |
-| Miesiąc i kategorie miesiąca | `GET P/months/{month}`, `GET P/months/{month}/categories/{category_id}` |
-| Historia transakcji | `GET P/transactions` lub wariant dla konta, kategorii, odbiorcy, miesiąca |
-| Tworzenie i aktualizacja transakcji | `POST P/transactions`, `PATCH P/transactions`, `PUT P/transactions/{transaction_id}` |
-| Usunięcie transakcji | `DELETE P/transactions/{transaction_id}` |
-| Import z połączonych instytucji | `POST P/transactions/import` |
-| Transakcje cykliczne | `GET/POST P/scheduled_transactions`, `GET/PUT/DELETE P/scheduled_transactions/{scheduled_transaction_id}` |
-| Przesunięcia środków — odczyt | `GET P/money_movements`, `GET P/money_movement_groups` i warianty miesiąca |
+| User, plan list, and plan settings | `GET /user`, `GET /plans`, `GET P/settings` |
+| Plan, accounts, categories, payees | `GET P`, `GET P/accounts`, `GET P/categories`, `GET P/payees` |
+| Month and monthly categories | `GET P/months/{month}`, `GET P/months/{month}/categories/{category_id}` |
+| Transaction history | `GET P/transactions` or the account, category, payee, or month variant |
+| Create and update transactions | `POST P/transactions`, `PATCH P/transactions`, `PUT P/transactions/{transaction_id}` |
+| Delete a transaction | `DELETE P/transactions/{transaction_id}` |
+| Import from linked institutions | `POST P/transactions/import` |
+| Scheduled transactions | `GET/POST P/scheduled_transactions`, `GET/PUT/DELETE P/scheduled_transactions/{scheduled_transaction_id}` |
+| Money movements — read | `GET P/money_movements`, `GET P/money_movement_groups` and their month variants |
 
-Przed budową żądania sprawdź metodę, parametry, body, odpowiedzi i schematy
-w [references/openapi.yaml](references/openapi.yaml). Zawiera wszystkie 44 operacje,
-w tym zarządzanie kontami, kategoriami, grupami kategorii i odbiorcami oraz lokalizacje.
-Procedury i przykłady: [references/workflows.md](references/workflows.md).
-Pochodzenie dokumentacji: [references/provenance.json](references/provenance.json).
-Nie wymyślaj endpointów ani parametrów; nazwy interfejsu nie zawsze odpowiadają polom API
-(np. przypisanie do kategorii nadal używa `budgeted`).
+Before building a request, check the method, parameters, body, responses, and schemas
+in [references/openapi.yaml](references/openapi.yaml). It contains all 44 operations,
+including management of accounts, categories, category groups, and payees, plus locations.
+Procedures and examples: [references/workflows.md](references/workflows.md).
+Documentation provenance: [references/provenance.json](references/provenance.json).
+Do not invent endpoints or parameters; UI names do not always match API fields
+(e.g. assigning money to a category still uses `budgeted`).
 
-## Uwierzytelnianie i wykonanie
+## Authentication and execution
 
-Dla własnego konta użyj Personal Access Token z Account Settings > Developer Settings,
-przekazywanego z otoczenia jako `YNAB_ACCESS_TOKEN`. Nagłówek:
-`Authorization: Bearer <ACCESS_TOKEN>`. Nie umieszczaj tokenu w URL, repo ani logach;
-nie wyświetlaj całego `.env` podczas szukania sekretu.
-Dla kont innych użytkowników używaj OAuth; procedurę i PKCE opisuje referencja workflow.
-Scope `read-only` wybieraj, gdy integracja nie potrzebuje zapisu.
+For your own account, use a Personal Access Token from Account Settings > Developer Settings,
+provided through the environment as `YNAB_ACCESS_TOKEN`. Header:
+`Authorization: Bearer <ACCESS_TOKEN>`. Do not put the token in URLs, the repository, or logs;
+do not display an entire `.env` file when looking for a secret.
+For other users' accounts, use OAuth; the workflow reference covers the procedure and PKCE.
+Choose the `read-only` scope when the integration does not need writes.
 
-Sprawdzaj HTTP oraz obiekt `data`; błędy mają `error.id`, `error.name`, `error.detail`.
-Nie traktuj brakujących pól jak zera. Nie drukuj całych odpowiedzi finansowych bez potrzeby.
-Limit wynosi 200 żądań na godzinę na token w ruchomym oknie. Po 429 ogranicz żądania;
-nie ponawiaj natychmiast. Używaj cache, precyzyjnych endpointów i delta requests.
+Check HTTP and the `data` object; errors contain `error.id`, `error.name`, and `error.detail`.
+Do not treat missing fields as zero. Do not print complete financial responses unnecessarily.
+The limit is 200 requests per hour per token in a rolling window. After 429, reduce requests;
+do not retry immediately. Use caching, specific endpoints, and delta requests.
 
-## Odczyt i interpretacja
+## Reading and interpretation
 
-Jeśli plan nie jest ustalony, pobierz `GET /plans` i wybierz jednoznaczne ID.
-`last-used` i `default` są aliasami, a `default` zależy od konfiguracji OAuth.
-Do wieloetapowej synchronizacji i zapisów przypnij konkretne ID planu.
+If the plan is not established, retrieve `GET /plans` and select an unambiguous ID.
+`last-used` and `default` are aliases, and `default` depends on OAuth configuration.
+Pin a specific plan ID for multi-step synchronization and writes.
 
-Kwoty to całkowite milliunits: 1000 = 1 jednostka waluty. Używaj liczb całkowitych
-lub Decimal, nigdy binarnego float przy przeliczeniu. Wydatki są ujemne.
-Nie sumuj różnych walut; walutę ustal z ustawień planu. Pola `*_formatted`
-służą prezentacji, nie obliczeniom. Daty: `YYYY-MM-DD`, czasy według dokumentacji UTC.
-Nie zmieniaj daty księgowej przez lokalne przeliczenie strefy.
+Amounts are integer milliunits: 1000 = 1 currency unit. Use integers
+or Decimal, never binary floating point for conversion. Expenses are negative.
+Do not sum different currencies; determine the currency from plan settings. Fields ending
+in `*_formatted` are for presentation, not calculations. Dates use `YYYY-MM-DD`;
+times are UTC according to the documentation. Do not shift an accounting date through
+local timezone conversion.
 
-Dla delta requests przechowuj `server_knowledge`, wysyłaj go jako
-`last_knowledge_of_server` tylko tam, gdzie parametr jest udokumentowany.
-Scalaj rekordy po ID, obsługuj `deleted=true`, utrwalaj kursor dopiero po scaleniu.
-Stan synchronizacji rozdzielaj według planu, zasobu i filtrów. Delta nie jest pełną listą.
+For delta requests, retain `server_knowledge` and send it as
+`last_knowledge_of_server` only where the parameter is documented.
+Merge records by ID, handle `deleted=true`, and persist the cursor only after merging.
+Separate synchronization state by plan, resource, and filters. A delta is not a full list.
 
-## Zapis zmienia plan
+## Writes change the plan
 
-Wykonuj zapis, gdy użytkownik go zlecił; przygotowanie danych nie jest zleceniem wysłania.
-Nie pytaj ponownie o udzieloną zgodę. Ustal plan, konta, kategorie, daty, walutę i kwoty;
-przy niejednoznaczności przygotuj podgląd i zapytaj tylko o brakującą informację.
-Nie ustawiaj zatwierdzenia, uzgodnienia ani nowego odbiorcy bez podstawy w zleceniu.
+Execute writes when the user requests them; preparing data is not an instruction to submit it.
+Do not ask again for authorization already given. Establish the plan, accounts, categories,
+dates, currency, and amounts; if ambiguous, prepare a preview and ask only for missing information.
+Do not set approval or reconciliation status, or create a payee, without support in the request.
 
-Przy imporcie pliku do transakcji użyj `POST /transactions` z body opisanym w schemacie;
-`POST /transactions/import` uruchamia import z kont połączonych z instytucjami,
-a nie upload pliku CSV. Przed wysłaniem sprawdź schemat odpowiedniego endpointu.
+To import a file as transactions, use `POST /transactions` with the body defined in the schema;
+`POST /transactions/import` triggers import from accounts linked to institutions,
+not a CSV file upload. Check the relevant endpoint's schema before submitting.
 
-Dla tworzonych transakcji używaj stabilnego `import_id`, jeśli źródło zapewnia trwałe ID;
-unikalność działa w obrębie konta. Nie generuj nowego ID przy ponowieniu ani nie zakładaj,
-że sama kwota i data identyfikują transakcję. Raportuj `duplicate_import_ids`.
-Po timeout zapisu sprawdź stan po ID/import_id; nie ponawiaj mutacji w ciemno.
-Nie zakładaj atomowości operacji zbiorczych ani trybu dry-run.
-Po zapisie podaj utworzone/zmienione/usunięte ID, pominięte duplikaty i błędy,
-zgodnie z faktyczną odpowiedzią. Rozróżniaj podgląd, wysłanie i potwierdzony zapis.
+For new transactions, use a stable `import_id` if the source provides persistent IDs;
+uniqueness is per account. Do not generate a new ID on retry or assume that amount
+and date alone identify a transaction. Report `duplicate_import_ids`.
+After a write timeout, check state by ID/import_id; do not blindly retry mutations.
+Do not assume batch operations are atomic or that a dry-run mode exists.
+After a write, report created/updated/deleted IDs, skipped duplicates, and errors
+according to the actual response. Distinguish a preview, submission, and confirmed write.

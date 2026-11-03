@@ -18,8 +18,9 @@ client or command runner to call the APIs; the Python examples require Python 3.
 | [myfund-api](skills/myfund-api/SKILL.md) | Read portfolios, holdings, and history; import transactions, cash flows, broker files, and PPK files. | myFund.pl v1 (beta) |
 | [ynab-api](skills/ynab-api/SKILL.md) | Read plans, accounts, categories, and transactions; synchronize changes and manage plan data. | YNAB v1, release 1.88.0 |
 
-The README is in English. Skill instructions and workflows are in Polish;
-API schemas retain the terminology used by their providers.
+The README, skill instructions, workflows, and UI metadata are in English.
+API snapshots, field names, parameter values, and UI labels retain the language
+and terminology used by their providers. Agents can still respond in the user's language.
 
 ## Installation
 

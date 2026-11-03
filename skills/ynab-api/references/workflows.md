@@ -1,13 +1,13 @@
-# Procedury YNAB API v1
+# YNAB API v1 workflows
 
-## Odczyt i wybór zasobu
+## Reading and resource selection
 
-Najpierw `GET /plans`, następnie pobierz tylko potrzebny zasób konkretnego planu.
-Odpowiedź to `data.plans`, `data.accounts`, `data.transactions` itd.; pojedyncze zasoby
-używają liczby pojedynczej. Puste tablice są poprawne. Do adresowania używaj ID,
-nie nazw. Wyszukaj w OpenAPI ścieżkę i wskazane przez nią `$ref`.
+Start with `GET /plans`, then retrieve only the needed resource from a specific plan.
+Responses use `data.plans`, `data.accounts`, `data.transactions`, etc.; individual
+resources use singular names. Empty arrays are valid. Address resources by ID,
+not name. Find the path in OpenAPI and follow its `$ref` references.
 
-Przykład Python 3, bez zewnętrznych zależności; token jest już w otoczeniu:
+Python 3 example without external dependencies; the token is already in the environment:
 
 ```python
 import json
@@ -23,46 +23,47 @@ try:
     with urllib.request.urlopen(request, timeout=30) as response:
         result = json.load(response)
 except urllib.error.HTTPError as error:
-    raise SystemExit(f"YNAB: HTTP {error.code}; sprawdź błąd API lokalnie") from None
+    raise SystemExit(f"YNAB: HTTP {error.code}; inspect the API error locally") from None
 except (urllib.error.URLError, TimeoutError):
-    raise SystemExit("YNAB: błąd połączenia") from None
+    raise SystemExit("YNAB: connection error") from None
 if not isinstance(result.get("data", {}).get("plans"), list):
-    raise SystemExit("YNAB: brak oczekiwanej listy planów")
+    raise SystemExit("YNAB: expected plan list is missing")
 plans = result["data"]["plans"]
-# Wybierz plan zgodnie ze zleceniem; nie drukuj pełnej odpowiedzi bez potrzeby.
+# Select a plan according to the request; do not print the full response unnecessarily.
 ```
 
-Transakcje można ograniczyć m.in. przez `since_date` i `type`, ale dostępność
-parametrów zależy od endpointu. Nie zakładaj paginacji ani filtrów spoza specyfikacji.
-Miesiąc podawaj według parametru `month` w OpenAPI; nie używaj daty dziennej
-jako miesiąca bez sprawdzenia formatu i dozwolonych aliasów.
+Transactions can be filtered using parameters such as `since_date` and `type`, but
+parameter availability depends on the endpoint. Do not assume pagination or filters
+beyond the specification. Supply the month according to the OpenAPI `month` parameter;
+do not use a daily date as a month without checking the format and allowed aliases.
 
-## Kwoty, kategorie i przelewy
+## Amounts, categories, and transfers
 
 ```python
 from decimal import Decimal
 
 amount = Decimal("-123.45") * 1000
 if amount != amount.to_integral_value():
-    raise ValueError("Kwota wymaga więcej niż trzech miejsc dziesiętnych")
+    raise ValueError("Amount requires more than three decimal places")
 milliunits = int(amount)  # -123450
 ```
 
-Uwzględnij precyzję waluty planu. Salda kont i kategorii mają inne znaczenie;
-nie licz wydatków przez sumowanie obu. Kategorie zawierają `budgeted`, `activity`,
-`balance`. Zmiana miesięcznego `budgeted` ustawia kwotę docelową, nie przyrost.
-Sprawdź `SaveMonthCategoryWrapper` oraz schemat pola przed aktualizacją.
-`hidden`, `closed`, `deleted`, brak pola i `null` nie są równoważne.
+Respect the plan currency's precision. Account balances and category balances have
+different meanings; do not calculate spending by summing both. Categories contain
+`budgeted`, `activity`, and `balance`. Updating monthly `budgeted` sets a target amount,
+not an increment. Check `SaveMonthCategoryWrapper` and the field schema before updating.
+`hidden`, `closed`, `deleted`, a missing field, and `null` are not equivalent.
 
-Przelew twórz przez `payee_id` odpowiadający `transfer_payee_id` konta docelowego,
-nie przez dwa niezależne wydatki. Nie podwajaj przelewów w analizie wydatków.
-Dla splitów sprawdź `subtransactions`, sumę kwot i ograniczenia kont/kategorii.
-Transakcje cykliczne są osobnym zasobem; nie licz ich jako już zaksięgowanych.
+Create a transfer using the `payee_id` matching the destination account's
+`transfer_payee_id`, not two independent expenses. Do not double-count transfers in
+spending analysis. For splits, check `subtransactions`, the sum of amounts, and
+account/category restrictions. Scheduled transactions are a separate resource;
+do not count them as already posted.
 
-## Tworzenie i import transakcji
+## Creating and importing transactions
 
-Poniżej lokalny podgląd body `POST /plans/{plan_id}/transactions`;
-identyfikatory są placeholderami, a przykład nie jest poleceniem wysłania:
+Below is a local preview of the body for `POST /plans/{plan_id}/transactions`;
+IDs are placeholders, and the example is not an instruction to submit:
 
 ```json
 {
@@ -72,72 +73,72 @@ identyfikatory są placeholderami, a przykład nie jest poleceniem wysłania:
     "amount": -123450,
     "payee_id": "{payee_id}",
     "category_id": "{category_id}",
-    "memo": "Przykładowy wydatek",
+    "memo": "Example expense",
     "import_id": "source:example-0001"
   }
 }
 ```
 
-Wybierz `transaction` albo `transactions`, nie oba. Sprawdź `NewTransaction`,
-`SaveTransactionWithOptionalFields` i wrapper endpointu. `import_id` ma maks. 36 znaków,
-unikalność w obrębie konta; musi być stabilny dla danego rekordu źródłowego.
-Dokumentacja opisuje format `YNAB:[milliunit_amount]:[iso_date]:[occurrence]`
-dla zgodności z Direct Import/File Based Import. Zachowaj rozróżnienie kilku
-rzeczywistych transakcji tego samego dnia i tej samej kwoty.
-Import może dopasować istniejącą transakcję wprowadzoną ręcznie na tym samym koncie
-z tą samą kwotą i datą w zakresie +/-10 dni. Nie utożsamiaj każdego potwierdzonego
-importu z utworzeniem nowego wiersza.
+Choose either `transaction` or `transactions`, not both. Check `NewTransaction`,
+`SaveTransactionWithOptionalFields`, and the endpoint wrapper. `import_id` is at most
+36 characters and unique per account; it must be stable for a given source record.
+The documentation describes the format `YNAB:[milliunit_amount]:[iso_date]:[occurrence]`
+for compatibility with Direct Import/File Based Import. Preserve the distinction
+between multiple real transactions on the same day for the same amount.
+An import may match an existing manually entered transaction on the same account
+with the same amount and a date within +/-10 days. Do not equate every confirmed
+import with the creation of a new row.
 
-`POST /transactions/import` uruchamia Direct Import na połączonych kontach;
-nie przyjmuje eksportu CSV. Wysyłając dane z pliku, najpierw przekształć je lokalnie
-do `transactions`, zweryfikuj walutę, konta, znaki, daty i duplikaty.
-Aktualizacje zbiorcze PATCH używają `id` lub `import_id`; `id` ma pierwszeństwo,
-a istniejącego `import_id` nie można zmienić. Ograniczenia PUT/PATCH sprawdź oddzielnie.
+`POST /transactions/import` triggers Direct Import on linked accounts;
+it does not accept a CSV export. When submitting file data, first transform it locally
+into `transactions`, verifying currency, accounts, signs, dates, and duplicates.
+Batch PATCH updates use `id` or `import_id`; `id` takes precedence,
+and an existing `import_id` cannot be changed. Check PUT/PATCH restrictions separately.
 
-Po zapisie sprawdź `transaction_ids`, `transaction`/`transactions`,
-`duplicate_import_ids` i `server_knowledge`, o ile odpowiedź je zawiera.
-Przy niepewnym wyniku najpierw odczytaj stan. Nie stosuj ogólnego retry dla POST/DELETE.
-Nie przenoś kursora otrzymanego po zapisie do niezależnej synchronizacji bez scalenia danych.
+After a write, check `transaction_ids`, `transaction`/`transactions`,
+`duplicate_import_ids`, and `server_knowledge` when present in the response.
+When the outcome is uncertain, read the state first. Do not apply blanket retries to POST/DELETE.
+Do not transfer a cursor received after a write to an independent synchronization without merging data.
 
-## Synchronizacja delta
+## Delta synchronization
 
-1. Pobierz pełny zasób z jego parametrami i zapisz rekordy oraz `server_knowledge`.
-2. Dla tego samego planu, zasobu i filtrów dodaj `last_knowledge_of_server`.
-3. Scal zmiany po ID; `deleted=true` usuwa rekord z aktywnego lokalnego stanu.
-4. Utrwal dane i nowy kursor razem; po nieudanym scaleniu zachowaj poprzedni kursor.
+1. Retrieve the full resource with its parameters and save the records and `server_knowledge`.
+2. For the same plan, resource, and filters, add `last_knowledge_of_server`.
+3. Merge changes by ID; `deleted=true` removes a record from the active local state.
+4. Persist the data and new cursor together; retain the previous cursor if merging fails.
 
-Parametr jest dostępny tylko w wybranych operacjach. Pusta delta nie oznacza pustego
-planu. Po zmianie zakresu filtrów wykonaj pełny odczyt nowego zakresu.
-Limit to 200 żądań na godzinę na token, wspólny dla zasobów. Nie pobieraj całego
-planu, jeśli wystarczy jedno konto lub kategoria. Dla 429 uwzględnij `Retry-After`,
-jeśli serwer go zwróci; dokumentacja nie gwarantuje tego nagłówka.
+The parameter is available only for selected operations. An empty delta does not
+mean an empty plan. After changing the filter scope, perform a full read of the new scope.
+The limit is 200 requests per hour per token, shared across resources. Do not retrieve
+an entire plan if one account or category is sufficient. For 429, honor `Retry-After`
+if the server returns it; the documentation does not guarantee this header.
 
-## OAuth — tylko dla integracji wymagającej autoryzacji użytkowników
+## OAuth — only for integrations requiring user authorization
 
-Własny PAT nie wygasa, ale może być odwołany. Nie proś innych użytkowników o PAT;
-dla nich zarejestruj OAuth Application w Developer Settings.
+A personal PAT does not expire, but can be revoked. Do not ask other users for PATs;
+register an OAuth Application in Developer Settings for them.
 
-Authorization Code: `https://app.ynab.com/oauth/authorize`, parametry `client_id`,
-`redirect_uri`, `response_type=code`; dodaj unikalny `state` i zweryfikuj zwrot.
-PKCE: losowy `code_verifier` 43–128 znaków, challenge SHA-256 zakodowany base64url
-bez paddingu, `code_challenge_method=S256`. Zachowaj verifier do wymiany kodu.
-Kod wymień POST do `https://app.ynab.com/oauth/token`, form-urlencoded:
+Authorization Code: `https://app.ynab.com/oauth/authorize`, parameters `client_id`,
+`redirect_uri`, `response_type=code`; add a unique `state` and validate it on return.
+PKCE: a random `code_verifier` of 43–128 characters, a SHA-256 challenge encoded as
+base64url without padding, and `code_challenge_method=S256`. Retain the verifier for code exchange.
+Exchange the code with POST to `https://app.ynab.com/oauth/token`, form-urlencoded:
 `client_id`, `client_secret`, `redirect_uri`, `grant_type=authorization_code`,
-`code`, a przy PKCE także `code_verifier`. Nie ujawniaj client_secret klientowi.
+`code`, plus `code_verifier` for PKCE. Do not expose client_secret to the client.
 
-Token OAuth wygasa po 7200 sekundach. Odświeżanie: ten sam endpoint token,
-`grant_type=refresh_token`, `client_id`, `client_secret`, `refresh_token`.
-Bezpiecznie zapisz nową parę tokenów zwróconą przez serwer. Scope `read-only`
-zabrania mutacji (403). Snapshot opisuje też Implicit Grant bez refresh tokenu;
-przed wyborem przepływu dla nowej aplikacji sprawdź aktualne oficjalne wymagania.
-Nowa aplikacja działa w Restricted Mode (25 autoryzacji innych użytkowników)
-i wymaga przeglądu YNAB przed zniesieniem tego limitu.
+The OAuth token expires after 7200 seconds. Refresh using the same token endpoint,
+`grant_type=refresh_token`, `client_id`, `client_secret`, and `refresh_token`.
+Securely save the new token pair returned by the server. The `read-only` scope
+prohibits mutations (403). The snapshot also describes Implicit Grant without a refresh token;
+check current official requirements before choosing a flow for a new application.
+A new application runs in Restricted Mode (25 authorizations by other users)
+and requires YNAB review before this limit is lifted.
 
-## Błędy i wynik
+## Errors and results
 
-Sprawdzaj kody odpowiedzi dla konkretnej operacji. 401 oznacza problem
-uwierzytelnienia; nie regeneruj PAT bez zlecenia. 403 może wynikać ze scope.
-404 sprawdź pod kątem planu i ID zasobu. Walidację 400/409 analizuj według
-`error` i opisu endpointu. 429 wymaga ograniczenia ruchu. Odczyty po przejściowym
-błędzie można ponawiać w ograniczony sposób; zapisy wymagają sprawdzenia stanu.
-Nie ujawniaj w komunikatach tokenu ani niepotrzebnych danych finansowych.
+Check response codes for the specific operation. 401 indicates an authentication
+problem; do not regenerate a PAT without instruction. 403 may result from scope.
+For 404, check the plan and resource IDs. Analyze 400/409 validation errors using
+`error` and the endpoint description. 429 requires reducing traffic. Reads after
+transient errors may be retried a limited number of times; writes require checking state.
+Do not expose tokens or unnecessary financial data in messages.

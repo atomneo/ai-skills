@@ -1,4 +1,4 @@
 interface:
   display_name: "YNAB API v1"
-  short_description: "Plany, konta i transakcje przez YNAB API v1"
-  default_prompt: "Użyj $ynab-api, aby pobrać listę moich planów i podsumować wybrany plan."
+  short_description: "Plans, accounts, and transactions via YNAB API v1"
+  default_prompt: "Use $ynab-api to list my plans and summarize the selected plan."

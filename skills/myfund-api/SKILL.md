@@ -1,6 +1,6 @@
 ---
 name: myfund-api
-description: Obsługuj myFund.pl API v1 — pobieraj portfele i ich skład, analizuj historię oraz importuj transakcje, przepływy i pliki PPK. Używaj przy zadaniach dotyczących integracji z myFund.pl lub danych z tego API.
+description: Work with myFund.pl API v1 — retrieve portfolios and holdings, analyze history, and import transactions, cash flows, and PPK files. Use for myFund.pl integrations or tasks involving data from this API.
 metadata:
   version: "1.0.0"
   api-version: "v1"
@@ -9,69 +9,69 @@ metadata:
 
 # myFund.pl API v1
 
-Kompatybilność: **myFund.pl API v1**, baza `https://myfund.pl/API/v1`.
-Źródło: dołączony snapshot dokumentacji z 2026-11-03. `3.1.0` oznacza
-format OpenAPI, a `1.0.0` wersję skilla; żadna z tych liczb nie jest wersją API.
-API jest opisane jako beta. Nie zakładaj zgodności z innymi wersjami.
+Compatibility: **myFund.pl API v1**, base URL `https://myfund.pl/API/v1`.
+Source: bundled documentation snapshot dated 2026-11-03. `3.1.0` is the
+OpenAPI format version and `1.0.0` is the skill version; neither is the API version.
+The API is described as beta. Do not assume compatibility with other versions.
 
-## Wybierz operację
+## Choose an operation
 
-| Potrzeba | Metoda i ścieżka |
+| Need | Method and path |
 | --- | --- |
-| Lista portfeli | `GET /getPortfele.php` |
-| Skład, wyniki, historia, dywidendy, konta, zobowiązania | `GET /getPortfel.php` |
-| Transakcje lub przepływy jako JSON | `POST /importOperacji.php` |
-| Eksport brokera jako plik | `POST /importOperacjiPlik.php` |
-| Eksport PPK z podziałem składek | `POST /importOperacjiPPKPlik.php` |
+| List portfolios | `GET /getPortfele.php` |
+| Holdings, performance, history, dividends, accounts, liabilities | `GET /getPortfel.php` |
+| Transactions or cash flows as JSON | `POST /importOperacji.php` |
+| Broker export file | `POST /importOperacjiPlik.php` |
+| PPK export with contribution breakdown | `POST /importOperacjiPPKPlik.php` |
 
-Przed konstruowaniem żądania przeczytaj odpowiedni endpoint i jego schematy
-w [references/openapi.yaml](references/openapi.yaml). Praktyczne zasady i przykłady
-znajdziesz w [references/workflows.md](references/workflows.md).
-Nie wymyślaj endpointów, nazw źródeł importu ani nieudokumentowanych parametrów.
+Before constructing a request, read the relevant endpoint and its schemas
+in [references/openapi.yaml](references/openapi.yaml). Practical guidance and examples
+are in [references/workflows.md](references/workflows.md).
+Do not invent endpoints, import source names, or undocumented parameters.
 
-## Uwierzytelnianie i wykonanie
+## Authentication and execution
 
-Klucz pochodzi z **Menu > Konto > Ustawienia konta > Klucz API**.
-Regeneracja unieważnia poprzedni klucz. Używaj sekretu z otoczenia
-(np. `MYFUND_API_KEY`), nie zapisuj go w skillu ani przykładach.
-Nie wypisuj pełnych URL-i z kluczem, nagłówków diagnostycznych ani danych prywatnych
-w logach. Nie odczytuj i nie wyświetlaj całego `.env`, aby znaleźć jeden sekret.
+Obtain the key from **Menu > Konto > Ustawienia konta > Klucz API**.
+Regenerating it invalidates the previous key. Use a secret from the environment
+(e.g. `MYFUND_API_KEY`); do not store it in the skill or examples.
+Do not log full URLs containing the key, diagnostic headers, or private data.
+Do not read and display an entire `.env` file to find a single secret.
 
-Odczyt wymaga `apiKey` w query. W importach używaj body JSON lub pól multipart.
-Koduj parametry URL, zachowuj polskie znaki i dokładną nazwę portfela, nie jego ID.
-Dla multipart pozwól klientowi wygenerować `Content-Type` z boundary.
+Reads require `apiKey` in the query. For imports, use the JSON body or multipart fields.
+URL-encode parameters, preserving Polish characters and the exact portfolio name, not its ID.
+For multipart requests, let the client generate `Content-Type` with its boundary.
 
-Sprawdzaj zarówno HTTP, jak i `status.code`: `"0"` to sukces, `"1"` błąd,
-`"7"` brak portfela. HTTP 200 sam nie potwierdza powodzenia.
-Jeżeli odpowiedź nie zawiera oczekiwanego statusu lub danych, zgłoś niepełny wynik.
-Odczyty są cache'owane przez 5 minut, importy nie. Nie obiecuj natychmiastowej
-aktualizacji danych po imporcie.
+Check both HTTP and `status.code`: `"0"` means success, `"1"` an error,
+and `"7"` a missing portfolio. HTTP 200 alone does not confirm success.
+If the response lacks the expected status or data, report an incomplete result.
+Reads are cached for 5 minutes; imports are not. Do not promise immediate
+updates to retrieved data after an import.
 
-## Odczyt i interpretacja
+## Reading and interpretation
 
-Najpierw pobierz listę portfeli, jeśli nazwa nie jest znana. Przy ograniczaniu
-`scope` zawsze dodawaj `status`; wybieraj wyłącznie potrzebne pola.
-`scope` działa tylko na najwyższym poziomie i rozróżnia wielkość liter.
-Nieznane pola są pomijane; brak pola nie oznacza wartości zero.
+Retrieve the portfolio list first if the name is unknown. When restricting
+`scope`, always include `status`; select only the fields needed.
+`scope` applies only at the top level and is case-sensitive.
+Unknown fields are omitted; a missing field does not mean zero.
 
-Zachowuj walutę, datę i jednostki. Wartości liczbowe często są stringami,
-czasem z `+`; puste wartości, `---` i `&nbsp;` traktuj jako brak danych.
-Nie konwertuj całego obiektu ślepo na liczby. Do kwot używaj arytmetyki dziesiętnej.
-`tickers` i historia są mapami, nie tablicami; szeregi czasowe są mapami dat.
-Nie mieszaj wartości pieniężnych `struktura` z udziałami `strukturaWalory`.
+Preserve currency, dates, and units. Numeric values are often strings,
+sometimes with `+`; treat empty values, `---`, and `&nbsp;` as missing data.
+Do not blindly convert the entire object to numbers. Use decimal arithmetic for money.
+`tickers` and history are maps, not arrays; time series are maps keyed by date.
+Do not confuse monetary values in `struktura` with shares in `strukturaWalory`.
 
-## Import zmienia portfel
+## Imports change the portfolio
 
-Samo przygotowanie danych nie upoważnia do wysłania importu. Wykonuj import,
-gdy użytkownik zlecił tę operację; nie pytaj ponownie o już udzieloną zgodę.
-Przed wysłaniem ustal portfel, dane, konta, źródło pliku i politykę duplikatów.
-Jeśli brakuje informacji wpływającej na zapis, przygotuj podgląd i zapytaj o nią.
-Nie dopisuj nieznanych cen, ilości, dat ani podatków.
+Preparing data alone does not authorize submitting an import. Execute an import
+when the user requests it; do not ask again for authorization already given.
+Before submitting, establish the portfolio, data, accounts, file source, and duplicate policy.
+If information affecting the write is missing, prepare a preview and ask for it.
+Do not fill in unknown prices, quantities, dates, or taxes.
 
-Domyślnie zachowuj `duplikaty=1` i `sprawdzCene="true"`.
-`duplikaty=2` może powielić operacje; używaj tylko na wyraźne zlecenie.
-Nie zakładaj atomowości ani idempotencji importu. Po timeout lub zerwaniu połączenia
-nie ponawiaj POST automatycznie: sprawdź historię i stan importu, uwzględniając cache.
-Nie ma udokumentowanego trybu dry-run; lokalny podgląd nie jest walidacją serwera.
-Po zakończeniu podaj status, liczbę operacji, pominięcia i najwcześniejszą datę,
-jeżeli odpowiedź je zawiera. Rozróżniaj przygotowanie żądania od wykonanego importu.
+Keep `duplikaty=1` and `sprawdzCene="true"` by default.
+`duplikaty=2` may duplicate operations; use it only on explicit instruction.
+Do not assume imports are atomic or idempotent. After a timeout or lost connection,
+do not automatically retry POST: check history and import status, accounting for the cache.
+There is no documented dry-run mode; a local preview is not server validation.
+After completion, report the status, operation count, omissions, and earliest date
+when present in the response. Distinguish request preparation from an executed import.
