@@ -1,8 +1,15 @@
 # AI Skills
 
 A collection of reusable agent skills for financial APIs. Each skill includes
-agent instructions, practical workflows, UI metadata, and a local OpenAPI snapshot.
+agent instructions, practical workflows, optional UI metadata, and a local OpenAPI snapshot.
 These are agent skills, rather than SDKs or MCP servers.
+
+The shared `SKILL.md` instructions and references use the
+[Agent Skills format](https://agentskills.io/specification) and are intended for
+Claude Code, Codex, and other agents that support it. They do not depend on
+agent-specific tools. The agent needs access to the installed files and an HTTP
+client or command runner to call the APIs; the Python examples require Python 3.
+`agents/openai.yaml` is optional OpenAI UI metadata, not a runtime dependency.
 
 ## Available skills
 
@@ -16,27 +23,42 @@ API schemas retain the terminology used by their providers.
 
 ## Installation
 
-Install a skill globally for Codex with the [skills CLI](https://github.com/vercel-labs/skills):
+Install globally with the [skills CLI](https://github.com/vercel-labs/skills),
+choosing your agent interactively:
 
 ```sh
-npx skills add atomneo/ai-skills --skill myfund-api -a codex -g
+npx skills add atomneo/ai-skills --skill myfund-api -g
+npx skills add atomneo/ai-skills --skill ynab-api -g
+```
+
+To select an agent explicitly, add `-a claude-code` for Claude Code or `-a codex`
+for Codex. For example:
+
+```sh
+npx skills add atomneo/ai-skills --skill ynab-api -a claude-code -g
 npx skills add atomneo/ai-skills --skill ynab-api -a codex -g
 ```
 
-Omit `-g` to install into the current project. Omit `-a codex` to choose your
-agent interactively. The CLI requires Node.js 22.20 or later.
+Omit `-g` to install into the current project. The CLI requires Node.js 22.20 or later.
 This repository is private, so Git must be authenticated with an account that
 has access. If necessary, use its SSH URL:
 
 ```sh
-npx skills add git@github.com:atomneo/ai-skills.git --skill ynab-api -a codex -g
+npx skills add git@github.com:atomneo/ai-skills.git --skill ynab-api -g
 ```
 
 You can also install from a local checkout:
 
 ```sh
-npx skills add /absolute/path/to/ai-skills --skill ynab-api -a codex -g
+npx skills add /absolute/path/to/ai-skills --skill ynab-api -g
 ```
+
+For manual installation, copy the entire skill directory, including `references/`,
+into your agent's skills directory. In
+[Claude Code](https://code.claude.com/docs/en/skills), use
+`.claude/skills/<skill-name>/` for a project or `~/.claude/skills/<skill-name>/`
+for a personal installation. Other agents have their own discovery locations.
+Cloning this repository alone does not install its skills into an agent.
 
 ## Credentials
 
@@ -57,11 +79,15 @@ personal access tokens.
 Example requests to your agent after installation:
 
 ```text
-Use $myfund-api to list my portfolios and summarize the selected portfolio.
-Use $myfund-api to prepare an import of this broker export.
-Use $ynab-api to list my plans and summarize the selected plan.
-Use $ynab-api to retrieve transactions for the selected account.
+Use the myfund-api skill to list my portfolios and summarize the selected portfolio.
+Use the myfund-api skill to prepare an import of this broker export.
+Use the ynab-api skill to list my plans and summarize the selected plan.
+Use the ynab-api skill to retrieve transactions for the selected account.
 ```
+
+Explicit invocation syntax depends on the agent: Claude Code uses `/myfund-api`
+or `/ynab-api`; Codex uses `$myfund-api` or `$ynab-api`. Agents may also select a
+skill automatically from its description.
 
 Preparation and execution of a write are separate operations. Skills require a
 user instruction authorizing the write, resolve ambiguous targets, and avoid
@@ -99,8 +125,11 @@ When updating a skill, review the API documentation, update affected instruction
 and schemas, and record the snapshot date and hashes in `provenance.json`.
 Skill versions and API versions are independent.
 
-Validate changed skill frontmatter with Codex's `skill-creator` validator when
-available. Validate API specifications with an OpenAPI-compatible validator and
+Validate changed skills against the [Agent Skills specification](https://agentskills.io/specification):
+check YAML frontmatter, names, descriptions, and relative links. Keep shared
+instructions independent of agent-specific tools, paths, and invocation syntax;
+put optional agent integration metadata in separate files such as `agents/openai.yaml`.
+Validate API specifications with an OpenAPI-compatible validator and
 check internal references. Do not test writes against real accounts without a
 user instruction authorizing those operations.
 
